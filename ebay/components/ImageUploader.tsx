@@ -33,7 +33,7 @@ export default function ImageUploader({ env, onChange }: Props) {
   }
 
   async function uploadFile(file: File): Promise<UploadedImage> {
-    const id = crypto.randomUUID()
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
     const previewUrl = URL.createObjectURL(file)
 
     const pending: UploadedImage = { id, previewUrl, ebayUrl: '', filename: file.name, status: 'uploading' }

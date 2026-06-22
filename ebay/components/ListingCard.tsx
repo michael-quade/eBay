@@ -42,10 +42,12 @@ export default function ListingCard({
   listing,
   env,
   onRelisted,
+  onDismiss,
 }: {
   listing: EbayListing
   env: EbayEnv
   onRelisted?: (oldItemId: string, newItemId: string) => void
+  onDismiss?: (itemId: string) => void
 }) {
   const isAuction = listing.listingType === 'Chinese'
   const isUnsold = listing.status === 'unsold'
@@ -110,6 +112,8 @@ export default function ListingCard({
     }
   }
 
+  if (relisted) return null
+
   return (
     <div className={`bg-white border rounded-xl shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden ${
       isUnsold ? 'border-amber-300' : 'border-gray-200'
@@ -127,9 +131,20 @@ export default function ListingCard({
           <div className="flex items-center justify-center h-full text-gray-400 text-sm">No image</div>
         )}
         {isUnsold && (
-          <div className="absolute top-2 left-2 bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300">
-            ENDED — NO SALE
-          </div>
+          <>
+            <div className="absolute top-2 left-2 bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300">
+              ENDED — NO SALE
+            </div>
+            {onDismiss && (
+              <button
+                onClick={() => onDismiss(listing.itemId)}
+                title="Dismiss from this list"
+                className="absolute top-2 right-2 w-5 h-5 rounded-full bg-black/40 hover:bg-black/70 text-white text-xs leading-none flex items-center justify-center transition-colors"
+              >
+                ×
+              </button>
+            )}
+          </>
         )}
       </div>
 
@@ -276,10 +291,6 @@ export default function ListingCard({
               </div>
             )}
           </div>
-        )}
-
-        {relisted && (
-          <p className="text-xs text-green-700 font-medium mt-1">✓ Relisted successfully</p>
         )}
 
         <a

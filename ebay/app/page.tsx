@@ -5,18 +5,39 @@ import ListingCard from '@/components/ListingCard'
 import type { EbayListing } from '@/lib/ebay/listings'
 import type { EbayEnv } from '@/lib/env'
 
+const RELISTED_KEY = 'ebay_relisted_ids'
+
+function getRelistedIds(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(RELISTED_KEY) ?? '[]'))
+  } catch { return new Set() }
+}
+
+function saveRelistedId(itemId: string) {
+  try {
+    const ids = getRelistedIds()
+    ids.add(itemId)
+    localStorage.setItem(RELISTED_KEY, JSON.stringify([...ids]))
+  } catch { /* localStorage unavailable */ }
+}
+
 export default function Dashboard() {
   const [env, setEnv] = useState<EbayEnv>('sandbox')
   const [listings, setListings] = useState<EbayListing[]>([])
+  const [relistedIds, setRelistedIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [lastFetched, setLastFetched] = useState<Date | null>(null)
 
+  // Load persisted relisted IDs on mount
+  useEffect(() => { setRelistedIds(getRelistedIds()) }, [])
+
   const activeListings = listings.filter(l => l.status === 'active')
-  const unsoldListings = listings.filter(l => l.status === 'unsold')
+  const unsoldListings = listings.filter(l => l.status === 'unsold' && !relistedIds.has(l.itemId))
 
   function handleRelisted(oldItemId: string) {
-    setListings(prev => prev.filter(l => l.itemId !== oldItemId))
+    saveRelistedId(oldItemId)
+    setRelistedIds(prev => new Set([...prev, oldItemId]))
   }
 
   const fetchListings = useCallback(async (e: EbayEnv) => {
@@ -167,7 +188,7 @@ export default function Dashboard() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {unsoldListings.map(l => (
-              <ListingCard key={l.itemId} listing={l} env={env} onRelisted={oldId => handleRelisted(oldId)} />
+              <ListingCard key={l.itemId} listing={l} env={env} onRelisted={oldId => handleRelisted(oldId)} onDismiss={handleRelisted} />
             ))}
           </div>
         </>
