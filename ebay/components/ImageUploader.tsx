@@ -15,7 +15,7 @@ export interface UploadedImage {
 
 interface Props {
   env: EbayEnv
-  onChange: (orderedUrls: string[]) => void
+  onChange: (ebayUrls: string[], blobUrls: string[]) => void
 }
 
 export default function ImageUploader({ env, onChange }: Props) {
@@ -28,7 +28,8 @@ export default function ImageUploader({ env, onChange }: Props) {
 
   // Notify parent whenever the ordered, successful URL list changes
   function notify(imgs: UploadedImage[]) {
-    onChange(imgs.filter(i => i.status === 'done').map(i => i.ebayUrl))
+    const done = imgs.filter(i => i.status === 'done')
+    onChange(done.map(i => i.ebayUrl), done.map(i => i.previewUrl))
   }
 
   async function uploadFile(file: File): Promise<UploadedImage> {

@@ -8,11 +8,13 @@ export interface EbayListing {
   currency: string
   bidCount: number
   watchCount: number
+  hitCount: number
   listingType: string
   galleryUrl?: string
   viewItemUrl: string
   endTime: string
   timeLeft: string
+  status: 'active' | 'unsold'
 }
 
 export interface NewListingData {
@@ -56,6 +58,10 @@ export async function getActiveListings(env: EbayEnv): Promise<EbayListing[]> {
     <Include>true</Include>
     <Pagination><EntriesPerPage>100</EntriesPerPage></Pagination>
   </ActiveList>
+  <UnsoldList>
+    <Include>true</Include>
+    <Pagination><EntriesPerPage>50</EntriesPerPage></Pagination>
+  </UnsoldList>
   <DetailLevel>ReturnAll</DetailLevel>
 </GetMyeBaySellingRequest>`
 
@@ -67,25 +73,37 @@ export async function getActiveListings(env: EbayEnv): Promise<EbayListing[]> {
     throw new Error(errors.map((e: { LongMessage?: string }) => e?.LongMessage).filter(Boolean).join('; '))
   }
 
-  const items = response?.ActiveList?.ItemArray?.Item
-  if (!items) return []
-
-  const arr = Array.isArray(items) ? items : [items]
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return arr.map((item: any) => ({
-    itemId: String(item.ItemID),
-    title: String(item.Title ?? ''),
-    currentPrice: extractPrice(item.SellingStatus?.CurrentPrice),
-    currency: item.SellingStatus?.CurrentPrice?.['@_currencyID'] ?? 'USD',
-    bidCount: Number(item.SellingStatus?.BidCount ?? 0),
-    watchCount: Number(item.WatchCount ?? 0),
-    listingType: String(item.ListingType ?? ''),
-    galleryUrl: item.PictureDetails?.GalleryURL as string | undefined,
-    viewItemUrl: String(item.ListingDetails?.ViewItemURL ?? ''),
-    endTime: String(item.ListingDetails?.EndTime ?? ''),
-    timeLeft: String(item.TimeLeft ?? ''),
-  }))
+  function mapItem(item: any, status: EbayListing['status']): EbayListing {
+    return {
+      itemId: String(item.ItemID),
+      title: String(item.Title ?? ''),
+      currentPrice: extractPrice(item.SellingStatus?.CurrentPrice),
+      currency: item.SellingStatus?.CurrentPrice?.['@_currencyID'] ?? 'USD',
+      bidCount: Number(item.SellingStatus?.BidCount ?? 0),
+      watchCount: Number(item.WatchCount ?? 0),
+      hitCount: Number(item.HitCount ?? 0),
+      listingType: String(item.ListingType ?? ''),
+      galleryUrl: item.PictureDetails?.GalleryURL as string | undefined,
+      viewItemUrl: String(item.ListingDetails?.ViewItemURL ?? ''),
+      endTime: String(item.ListingDetails?.EndTime ?? ''),
+      timeLeft: String(item.TimeLeft ?? ''),
+      status,
+    }
+  }
+
+  const activeItems = response?.ActiveList?.ItemArray?.Item
+  const unsoldItems = response?.UnsoldList?.ItemArray?.Item
+
+  const active = activeItems
+    ? (Array.isArray(activeItems) ? activeItems : [activeItems]).map(i => mapItem(i, 'active'))
+    : []
+
+  const unsold = unsoldItems
+    ? (Array.isArray(unsoldItems) ? unsoldItems : [unsoldItems]).map(i => mapItem(i, 'unsold'))
+    : []
+
+  return [...active, ...unsold]
 }
 
 function escapeXml(str: string): string {
@@ -131,9 +149,7 @@ export async function createListing(
     </ReturnPolicy>`
     : `<ReturnPolicy><ReturnsAcceptedOption>ReturnsNotAccepted</ReturnsAcceptedOption></ReturnPolicy>`
 
-  const locationXml = data.location
-    ? `<Location>${escapeXml(data.location)}</Location>`
-    : ''
+  const locationXml = `<Location>${escapeXml(data.location || 'United States')}</Location>`
 
   const xml = `<?xml version="1.0" encoding="utf-8"?>
 <AddItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
@@ -148,6 +164,7 @@ export async function createListing(
     <ConditionID>${data.conditionId}</ConditionID>
     <Country>US</Country>
     <Currency>USD</Currency>
+    <HitCounter>BasicStyle</HitCounter>
     <DispatchTimeMax>3</DispatchTimeMax>
     <ListingDuration>${data.duration}</ListingDuration>
     <ListingType>${data.listingType}</ListingType>
@@ -181,4 +198,64 @@ ${pictureUrls}
   }
 
   return { itemId: String(response?.ItemID), env }
+}
+
+export async function relistItem(
+  itemId: string,
+  newPrice: number | null,
+  env: EbayEnv
+): Promise<{ itemId: string }> {
+  const creds = getCredentials(env)
+
+  const priceXml = newPrice != null
+    ? `<StartPrice currencyID="USD">${newPrice.toFixed(2)}</StartPrice>`
+    : ''
+
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<RelistItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <RequesterCredentials>
+    <eBayAuthToken>${creds.token}</eBayAuthToken>
+  </RequesterCredentials>
+  <Item>
+    <ItemID>${itemId}</ItemID>
+    ${priceXml}
+  </Item>
+</RelistItemRequest>`
+
+  const result = await tradingApiCall('RelistItem', xml, env)
+  const response = result?.RelistItemResponse
+
+  if (response?.Ack === 'Failure') {
+    const errors = Array.isArray(response?.Errors) ? response.Errors : [response?.Errors]
+    throw new Error(errors.map((e: { LongMessage?: string }) => e?.LongMessage).filter(Boolean).join('; '))
+  }
+
+  return { itemId: String(response?.ItemID) }
+}
+
+export async function reviseItemPrice(
+  itemId: string,
+  newPrice: number,
+  env: EbayEnv
+): Promise<void> {
+  const creds = getCredentials(env)
+
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<ReviseItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <RequesterCredentials>
+    <eBayAuthToken>${creds.token}</eBayAuthToken>
+  </RequesterCredentials>
+  <Item>
+    <ItemID>${itemId}</ItemID>
+    <StartPrice currencyID="USD">${newPrice.toFixed(2)}</StartPrice>
+  </Item>
+</ReviseItemRequest>`
+
+  const result = await tradingApiCall('ReviseItem', xml, env)
+  const response = result?.ReviseItemResponse
+
+  if (response?.Ack === 'Failure') {
+    const errors = Array.isArray(response?.Errors) ? response.Errors : [response?.Errors]
+    throw new Error(errors.map((e: { LongMessage?: string }) => e?.LongMessage).filter(Boolean).join('; '))
+  }
 }

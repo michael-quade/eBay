@@ -12,6 +12,13 @@ export default function Dashboard() {
   const [error, setError] = useState('')
   const [lastFetched, setLastFetched] = useState<Date | null>(null)
 
+  const activeListings = listings.filter(l => l.status === 'active')
+  const unsoldListings = listings.filter(l => l.status === 'unsold')
+
+  function handleRelisted(oldItemId: string) {
+    setListings(prev => prev.filter(l => l.itemId !== oldItemId))
+  }
+
   const fetchListings = useCallback(async (e: EbayEnv) => {
     setLoading(true)
     setError('')
@@ -103,7 +110,7 @@ export default function Dashboard() {
       )}
 
       {/* Empty state */}
-      {!loading && !error && listings.length === 0 && (
+      {!loading && !error && activeListings.length === 0 && unsoldListings.length === 0 && (
         <div className="text-center py-20 text-gray-400">
           <p className="text-4xl mb-3">📦</p>
           <p className="font-medium text-gray-500">No active listings</p>
@@ -137,13 +144,30 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Listings grid */}
-      {!loading && listings.length > 0 && (
+      {/* Active listings grid */}
+      {!loading && activeListings.length > 0 && (
         <>
-          <p className="text-sm text-gray-500">{listings.length} active listing{listings.length !== 1 ? 's' : ''}</p>
+          <p className="text-sm text-gray-500">{activeListings.length} active listing{activeListings.length !== 1 ? 's' : ''}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {listings.map(l => (
-              <ListingCard key={l.itemId} listing={l} />
+            {activeListings.map(l => (
+              <ListingCard key={l.itemId} listing={l} env={env} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Ended without buyer — production only */}
+      {!loading && env === 'production' && unsoldListings.length > 0 && (
+        <>
+          <div className="flex items-center gap-2 pt-2">
+            <h2 className="text-base font-semibold text-gray-700">Ended Without a Buyer</h2>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 font-medium">
+              {unsoldListings.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {unsoldListings.map(l => (
+              <ListingCard key={l.itemId} listing={l} env={env} onRelisted={oldId => handleRelisted(oldId)} />
             ))}
           </div>
         </>

@@ -128,6 +128,7 @@ const inputCls = 'border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outl
 
 export default function NewListingForm({ defaultEnv }: { defaultEnv: EbayEnv }) {
   const [form, setForm] = useState<FormValues>(defaultForm)
+  const [photoBlobUrls, setPhotoBlobUrls] = useState<string[]>([])
   const [submitState, setSubmitState] = useState<SubmitState>('idle')
   const [sandboxItemId, setSandboxItemId] = useState('')
   const [productionItemId, setProductionItemId] = useState('')
@@ -173,7 +174,7 @@ export default function NewListingForm({ defaultEnv }: { defaultEnv: EbayEnv }) 
     set('itemSpecifics', form.itemSpecifics.filter((_, idx) => idx !== i))
   }
 
-  function buildPayload(env: EbayEnv): NewListingData & { env: EbayEnv } {
+  function buildPayload(env: EbayEnv, photos: string[]): NewListingData & { env: EbayEnv } {
     return {
       env,
       title: form.title.trim(),
@@ -186,7 +187,7 @@ export default function NewListingForm({ defaultEnv }: { defaultEnv: EbayEnv }) 
       reservePrice: form.reservePrice ? parseFloat(form.reservePrice) : undefined,
       duration: form.duration,
       quantity: parseInt(form.quantity) || 1,
-      photos: form.photos.filter(Boolean),
+      photos,
       shippingService: form.shippingService,
       shippingCost: parseFloat(form.shippingCost) || 0,
       returnsAccepted: form.returnsAccepted,
@@ -205,6 +206,21 @@ export default function NewListingForm({ defaultEnv }: { defaultEnv: EbayEnv }) 
     return null
   }
 
+  async function reuploadToProduction(blobUrls: string[]): Promise<string[]> {
+    return Promise.all(
+      blobUrls.map(async (blobUrl) => {
+        const blob = await fetch(blobUrl).then(r => r.blob())
+        const fd = new FormData()
+        fd.append('file', blob, 'image.jpg')
+        fd.append('env', 'production')
+        const res = await fetch('/api/upload', { method: 'POST', body: fd })
+        const data = await res.json()
+        if (!res.ok || data.error) throw new Error(data.error ?? 'Image re-upload failed')
+        return data.url as string
+      })
+    )
+  }
+
   async function submit(env: EbayEnv) {
     const err = validate()
     if (err) { setErrorMsg(err); setSubmitState('error'); return }
@@ -213,10 +229,15 @@ export default function NewListingForm({ defaultEnv }: { defaultEnv: EbayEnv }) 
     setSubmitState(env === 'sandbox' ? 'testing' : 'publishing')
 
     try {
+      // Re-upload images to production EPS so URLs are publicly accessible
+      const photos = env === 'production'
+        ? await reuploadToProduction(photoBlobUrls)
+        : form.photos.filter(Boolean)
+
       const res = await fetch('/api/listings/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildPayload(env)),
+        body: JSON.stringify(buildPayload(env, photos)),
       })
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error ?? 'Unknown error')
@@ -385,7 +406,10 @@ export default function NewListingForm({ defaultEnv }: { defaultEnv: EbayEnv }) 
         <Field label="Photos" required>
           <ImageUploader
             env={defaultEnv}
-            onChange={urls => set('photos', urls)}
+            onChange={(ebayUrls, blobUrls) => {
+              set('photos', ebayUrls)
+              setPhotoBlobUrls(blobUrls)
+            }}
           />
         </Field>
       </div>

@@ -1,4 +1,3 @@
-import { tradingApiCall } from './client'
 import { getCredentials, type EbayEnv } from '../env'
 
 export interface CategorySuggestion {
@@ -7,33 +6,57 @@ export interface CategorySuggestion {
   categoryParentName?: string
 }
 
+async function getAppToken(env: EbayEnv): Promise<string> {
+  const creds = getCredentials(env)
+  const baseUrl =
+    env === 'sandbox'
+      ? 'https://api.sandbox.ebay.com'
+      : 'https://api.ebay.com'
+
+  const encoded = Buffer.from(`${creds.clientId}:${creds.clientSecret}`).toString('base64')
+
+  const res = await fetch(`${baseUrl}/identity/v1/oauth2/token`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${encoded}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: 'grant_type=client_credentials&scope=https%3A%2F%2Fapi.ebay.com%2Foauth%2Fapi_scope',
+  })
+
+  const data = await res.json()
+  if (!data.access_token) throw new Error(`OAuth token error: ${JSON.stringify(data)}`)
+  return data.access_token as string
+}
+
 export async function getCategorySuggestions(
   query: string,
   env: EbayEnv
 ): Promise<CategorySuggestion[]> {
-  const creds = getCredentials(env)
+  const token = await getAppToken(env)
+  const baseUrl =
+    env === 'sandbox'
+      ? 'https://api.sandbox.ebay.com'
+      : 'https://api.ebay.com'
 
-  const xml = `<?xml version="1.0" encoding="utf-8"?>
-<GetSuggestedCategoriesRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <RequesterCredentials>
-    <eBayAuthToken>${creds.token}</eBayAuthToken>
-  </RequesterCredentials>
-  <Query>${query}</Query>
-  <CategoryCount>10</CategoryCount>
-</GetSuggestedCategoriesRequest>`
-
-  const result = await tradingApiCall('GetSuggestedCategories', xml, env)
-  const response = result?.GetSuggestedCategoriesResponse
-
-  if (!response?.SuggestedCategoryArray) return []
-
-  const suggestions = response.SuggestedCategoryArray.SuggestedCategory
-  const arr = Array.isArray(suggestions) ? suggestions : [suggestions]
+  const res = await fetch(
+    `${baseUrl}/commerce/taxonomy/v1/category_tree/0/get_category_suggestions?q=${encodeURIComponent(query)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  )
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return arr.map((s: any) => ({
-    categoryId: String(s?.Category?.CategoryID ?? ''),
-    categoryName: String(s?.Category?.CategoryName ?? ''),
-    categoryParentName: s?.Category?.CategoryParentName as string | undefined,
+  const data: any = await res.json()
+  if (!data.categorySuggestions) return []
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return data.categorySuggestions.slice(0, 10).map((s: any) => ({
+    categoryId: String(s.category?.categoryId ?? ''),
+    categoryName: String(s.category?.categoryName ?? ''),
+    categoryParentName: s.categoryTreeNodeAncestors?.[0]?.categoryName as string | undefined,
   }))
 }
