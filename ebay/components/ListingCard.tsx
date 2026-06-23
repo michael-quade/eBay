@@ -131,20 +131,18 @@ export default function ListingCard({
           <div className="flex items-center justify-center h-full text-gray-400 text-sm">No image</div>
         )}
         {isUnsold && (
-          <>
-            <div className="absolute top-2 left-2 bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300">
-              ENDED — NO SALE
-            </div>
-            {onDismiss && (
-              <button
-                onClick={() => onDismiss(listing.itemId)}
-                title="Dismiss from this list"
-                className="absolute top-2 right-2 w-5 h-5 rounded-full bg-black/40 hover:bg-black/70 text-white text-xs leading-none flex items-center justify-center transition-colors"
-              >
-                ×
-              </button>
-            )}
-          </>
+          <div className="absolute top-2 left-2 bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300">
+            ENDED — NO SALE
+          </div>
+        )}
+        {onDismiss && (
+          <button
+            onClick={() => onDismiss(listing.itemId)}
+            title="Dismiss from this list"
+            className="absolute top-2 right-2 w-5 h-5 rounded-full bg-black/40 hover:bg-black/70 text-white text-xs leading-none flex items-center justify-center transition-colors"
+          >
+            ×
+          </button>
         )}
       </div>
 

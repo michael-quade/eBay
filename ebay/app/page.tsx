@@ -6,18 +6,18 @@ import type { EbayListing } from '@/lib/ebay/listings'
 import type { EbayEnv } from '@/lib/env'
 
 const RELISTED_KEY = 'ebay_relisted_ids'
+const SANDBOX_DISMISSED_KEY = 'ebay_sandbox_dismissed_ids'
 
-function getRelistedIds(): Set<string> {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(RELISTED_KEY) ?? '[]'))
-  } catch { return new Set() }
+function getStoredSet(key: string): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(key) ?? '[]')) }
+  catch { return new Set() }
 }
 
-function saveRelistedId(itemId: string) {
+function addToStoredSet(key: string, id: string) {
   try {
-    const ids = getRelistedIds()
-    ids.add(itemId)
-    localStorage.setItem(RELISTED_KEY, JSON.stringify([...ids]))
+    const ids = getStoredSet(key)
+    ids.add(id)
+    localStorage.setItem(key, JSON.stringify([...ids]))
   } catch { /* localStorage unavailable */ }
 }
 
@@ -25,18 +25,29 @@ export default function Dashboard() {
   const [env, setEnv] = useState<EbayEnv>('sandbox')
   const [listings, setListings] = useState<EbayListing[]>([])
   const [relistedIds, setRelistedIds] = useState<Set<string>>(new Set())
+  const [sandboxDismissedIds, setSandboxDismissedIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [lastFetched, setLastFetched] = useState<Date | null>(null)
-  // Load persisted relisted IDs on mount
-  useEffect(() => { setRelistedIds(getRelistedIds()) }, [])
 
-  const activeListings = listings.filter(l => l.status === 'active')
+  useEffect(() => {
+    setRelistedIds(getStoredSet(RELISTED_KEY))
+    setSandboxDismissedIds(getStoredSet(SANDBOX_DISMISSED_KEY))
+  }, [])
+
+  const activeListings = listings.filter(l =>
+    l.status === 'active' && !(env === 'sandbox' && sandboxDismissedIds.has(l.itemId))
+  )
   const unsoldListings = listings.filter(l => l.status === 'unsold' && !relistedIds.has(l.itemId))
 
   function handleRelisted(oldItemId: string) {
-    saveRelistedId(oldItemId)
+    addToStoredSet(RELISTED_KEY, oldItemId)
     setRelistedIds(prev => new Set([...prev, oldItemId]))
+  }
+
+  function handleSandboxDismiss(itemId: string) {
+    addToStoredSet(SANDBOX_DISMISSED_KEY, itemId)
+    setSandboxDismissedIds(prev => new Set([...prev, itemId]))
   }
 
   const fetchListings = useCallback(async (e: EbayEnv) => {
@@ -170,7 +181,12 @@ export default function Dashboard() {
           <p className="text-sm text-gray-500">{activeListings.length} active listing{activeListings.length !== 1 ? 's' : ''}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {activeListings.map(l => (
-              <ListingCard key={l.itemId} listing={l} env={env} />
+              <ListingCard
+                key={l.itemId}
+                listing={l}
+                env={env}
+                onDismiss={env === 'sandbox' ? handleSandboxDismiss : undefined}
+              />
             ))}
           </div>
         </>
