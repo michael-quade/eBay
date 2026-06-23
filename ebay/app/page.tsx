@@ -28,7 +28,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [lastFetched, setLastFetched] = useState<Date | null>(null)
-
   // Load persisted relisted IDs on mount
   useEffect(() => { setRelistedIds(getRelistedIds()) }, [])
 

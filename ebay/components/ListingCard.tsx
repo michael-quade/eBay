@@ -221,12 +221,10 @@ export default function ListingCard({
             <span className="text-gray-400">Watching </span>
             <span className="font-medium">{listing.watchCount}</span>
           </div>
-          {listing.hitCount > 0 && (
-            <div>
-              <span className="text-gray-400">Views </span>
-              <span className="font-medium">{listing.hitCount.toLocaleString()}</span>
-            </div>
-          )}
+          <div>
+            <span className="text-gray-400">Views </span>
+            <span className="font-medium">{listing.hitCount.toLocaleString()}</span>
+          </div>
           <div className="col-span-2">
             <span className="text-gray-400">{isUnsold ? 'Ended ' : 'Ends '}</span>
             <span className="font-medium">{formatEndDate(listing.endTime)}</span>

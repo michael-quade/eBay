@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useId } from 'react'
+import { useState, useRef, useCallback, useId, useEffect } from 'react'
 import Image from 'next/image'
 import type { EbayEnv } from '@/lib/env'
 
@@ -22,27 +22,26 @@ export default function ImageUploader({ env, onChange }: Props) {
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [images, setImages] = useState<UploadedImage[]>([])
-  const [isDragOver, setIsDragOver] = useState(false) // file drop zone
+  const [isDragOver, setIsDragOver] = useState(false)
   const [thumbDragIdx, setThumbDragIdx] = useState<number | null>(null)
   const [thumbDragOverIdx, setThumbDragOverIdx] = useState<number | null>(null)
 
-  // Notify parent whenever the ordered, successful URL list changes
-  function notify(imgs: UploadedImage[]) {
-    const done = imgs.filter(i => i.status === 'done')
-    onChange(done.map(i => i.ebayUrl), done.map(i => i.previewUrl))
-  }
+  // Keep a stable ref to onChange so the effect below never goes stale
+  const onChangeRef = useRef(onChange)
+  useEffect(() => { onChangeRef.current = onChange })
+
+  // Notify parent after any images state change, outside of render/updater
+  useEffect(() => {
+    const done = images.filter(i => i.status === 'done')
+    onChangeRef.current(done.map(i => i.ebayUrl), done.map(i => i.previewUrl))
+  }, [images])
 
   async function uploadFile(file: File): Promise<UploadedImage> {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
     const previewUrl = URL.createObjectURL(file)
-
     const pending: UploadedImage = { id, previewUrl, ebayUrl: '', filename: file.name, status: 'uploading' }
 
-    setImages(prev => {
-      const next = [...prev, pending]
-      notify(next)
-      return next
-    })
+    setImages(prev => [...prev, pending])
 
     try {
       const fd = new FormData()
@@ -54,22 +53,14 @@ export default function ImageUploader({ env, onChange }: Props) {
 
       if (!res.ok || data.error) throw new Error(data.error ?? 'Upload failed')
 
-      setImages(prev => {
-        const next = prev.map(img =>
-          img.id === id ? { ...img, ebayUrl: data.url, status: 'done' as const } : img
-        )
-        notify(next)
-        return next
-      })
+      setImages(prev => prev.map(img =>
+        img.id === id ? { ...img, ebayUrl: data.url, status: 'done' as const } : img
+      ))
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Upload failed'
-      setImages(prev => {
-        const next = prev.map(img =>
-          img.id === id ? { ...img, status: 'error' as const, error: message } : img
-        )
-        notify(next)
-        return next
-      })
+      setImages(prev => prev.map(img =>
+        img.id === id ? { ...img, status: 'error' as const, error: message } : img
+      ))
     }
 
     return pending
@@ -80,7 +71,6 @@ export default function ImageUploader({ env, onChange }: Props) {
       const arr = Array.from(files).filter(f => f.type.startsWith('image/'))
       arr.forEach(uploadFile)
     },
-    // uploadFile is stable; env triggers re-upload if env changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [env]
   )
@@ -121,7 +111,6 @@ export default function ImageUploader({ env, onChange }: Props) {
       const next = [...prev]
       const [moved] = next.splice(fromIdx, 1)
       next.splice(dropIdx, 0, moved)
-      notify(next)
       return next
     })
     setThumbDragIdx(null)
@@ -137,25 +126,68 @@ export default function ImageUploader({ env, onChange }: Props) {
       const next = [...prev]
       const [img] = next.splice(idx, 1)
       next.unshift(img)
-      notify(next)
       return next
     })
   }
 
-  function retryUpload(idx: number) {
+  async function rotateImage(idx: number, delta: 90 | -90) {
     const img = images[idx]
-    if (!img) return
-    // Reload from previewUrl is not possible; ask user to re-add the file.
-    // Instead mark it removed and have user re-add.
+    if (!img || img.status !== 'done') return
+
+    setImages(prev => prev.map((i, ii) => ii === idx ? { ...i, status: 'uploading' as const } : i))
+
+    try {
+      const imageEl = new window.Image()
+      imageEl.src = img.previewUrl
+      await new Promise<void>((resolve, reject) => {
+        imageEl.onload = () => resolve()
+        imageEl.onerror = () => reject(new Error('Image load failed'))
+      })
+
+      const angle = ((delta % 360) + 360) % 360
+      const swap = angle === 90 || angle === 270
+      const canvas = document.createElement('canvas')
+      canvas.width = swap ? imageEl.naturalHeight : imageEl.naturalWidth
+      canvas.height = swap ? imageEl.naturalWidth : imageEl.naturalHeight
+
+      const ctx = canvas.getContext('2d')!
+      ctx.translate(canvas.width / 2, canvas.height / 2)
+      ctx.rotate((angle * Math.PI) / 180)
+      ctx.drawImage(imageEl, -imageEl.naturalWidth / 2, -imageEl.naturalHeight / 2)
+
+      const blob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('Canvas export failed')), 'image/jpeg', 0.92)
+      )
+
+      const newPreviewUrl = URL.createObjectURL(blob)
+
+      const fd = new FormData()
+      fd.append('file', new File([blob], img.filename, { type: 'image/jpeg' }))
+      fd.append('env', env)
+
+      const res = await fetch('/api/upload', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error ?? 'Upload failed')
+
+      setImages(prev => prev.map((i, ii) => ii === idx
+        ? { ...i, previewUrl: newPreviewUrl, ebayUrl: data.url, status: 'done' as const }
+        : i
+      ))
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Rotation failed'
+      setImages(prev => prev.map((i, ii) => ii === idx
+        ? { ...i, status: 'error' as const, error: message }
+        : i
+      ))
+    }
+  }
+
+  function retryUpload(idx: number) {
     removeImage(idx)
   }
 
   function removeImage(idx: number) {
-    setImages(prev => {
-      const next = prev.filter((_, i) => i !== idx)
-      notify(next)
-      return next
-    })
+    setImages(prev => prev.filter((_, i) => i !== idx))
   }
 
   const doneCount = images.filter(i => i.status === 'done').length
@@ -267,19 +299,37 @@ export default function ImageUploader({ env, onChange }: Props) {
 
               {/* Action bar (shown on hover for done images) */}
               {img.status === 'done' && (
-                <div className="absolute bottom-0 inset-x-0 bg-black/60 flex items-center justify-between px-1 py-0.5 opacity-0 hover:opacity-100 transition-opacity">
-                  {idx !== 0 ? (
+                <div className="absolute bottom-0 inset-x-0 bg-black/60 flex items-center justify-between px-1 py-1 opacity-0 hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-1">
+                    {idx !== 0 ? (
+                      <button
+                        type="button"
+                        title="Set as main image"
+                        onClick={() => setAsMain(idx)}
+                        className="text-yellow-300 hover:text-yellow-100 text-[11px] font-medium leading-none"
+                      >
+                        ★
+                      </button>
+                    ) : (
+                      <span className="text-yellow-300 text-[11px] leading-none">★</span>
+                    )}
                     <button
                       type="button"
-                      title="Set as main image"
-                      onClick={() => setAsMain(idx)}
-                      className="text-yellow-300 hover:text-yellow-100 text-[11px] font-medium"
+                      title="Rotate left"
+                      onClick={() => rotateImage(idx, -90)}
+                      className="text-white/80 hover:text-white text-sm leading-none px-0.5"
                     >
-                      ★ Main
+                      ↺
                     </button>
-                  ) : (
-                    <span className="text-yellow-300 text-[11px]">★ Main</span>
-                  )}
+                    <button
+                      type="button"
+                      title="Rotate right"
+                      onClick={() => rotateImage(idx, 90)}
+                      className="text-white/80 hover:text-white text-sm leading-none px-0.5"
+                    >
+                      ↻
+                    </button>
+                  </div>
                   <button
                     type="button"
                     title="Remove"
