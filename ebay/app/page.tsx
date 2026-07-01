@@ -214,7 +214,7 @@ export default function Dashboard() {
       {!loading && soldItems.length > 0 && (
         <>
           <div className="flex items-center gap-2 pt-2">
-            <h2 className="text-base font-semibold text-gray-700">Sold — Past 6 Months</h2>
+            <h2 className="text-base font-semibold text-gray-700">Sold — Past 90 Days</h2>
             <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200 font-medium">
               {soldItems.length}
             </span>

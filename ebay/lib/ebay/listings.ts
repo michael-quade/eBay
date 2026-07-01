@@ -129,7 +129,7 @@ export async function getSoldItems(env: EbayEnv): Promise<SoldItem[]> {
 
   const now = new Date()
   const sixMonthsAgo = new Date()
-  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+  sixMonthsAgo.setDate(sixMonthsAgo.getDate() - 90)
 
   const xml = `<?xml version="1.0" encoding="utf-8"?>
 <GetOrdersRequest xmlns="urn:ebay:apis:eBLBaseComponents">
