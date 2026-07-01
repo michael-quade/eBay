@@ -17,6 +17,24 @@ export interface EbayListing {
   status: 'active' | 'unsold'
 }
 
+export interface SoldItem {
+  orderId: string
+  itemId: string
+  title: string
+  salePrice: number
+  currency: string
+  quantity: number
+  buyerUserId: string
+  saleDate: string
+  paidDate?: string
+  shippedDate?: string
+  status: 'awaiting_payment' | 'paid' | 'shipped' | 'cancelled'
+  trackingNumber?: string
+  trackingCarrier?: string
+  galleryUrl?: string
+  viewItemUrl?: string
+}
+
 export interface NewListingData {
   title: string
   description?: string
@@ -104,6 +122,74 @@ export async function getActiveListings(env: EbayEnv): Promise<EbayListing[]> {
     : []
 
   return [...active, ...unsold]
+}
+
+export async function getSoldItems(env: EbayEnv): Promise<SoldItem[]> {
+  const creds = getCredentials(env)
+
+  const now = new Date()
+  const sixMonthsAgo = new Date()
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<GetOrdersRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <RequesterCredentials>
+    <eBayAuthToken>${creds.token}</eBayAuthToken>
+  </RequesterCredentials>
+  <CreateTimeFrom>${sixMonthsAgo.toISOString()}</CreateTimeFrom>
+  <CreateTimeTo>${now.toISOString()}</CreateTimeTo>
+  <OrderRole>Seller</OrderRole>
+  <OrderStatus>All</OrderStatus>
+  <DetailLevel>ReturnAll</DetailLevel>
+  <Pagination><EntriesPerPage>100</EntriesPerPage><PageNumber>1</PageNumber></Pagination>
+</GetOrdersRequest>`
+
+  const result = await tradingApiCall('GetOrders', xml, env)
+  const response = result?.GetOrdersResponse
+
+  if (response?.Ack === 'Failure') {
+    const errors = Array.isArray(response?.Errors) ? response.Errors : [response?.Errors]
+    throw new Error(errors.map((e: { LongMessage?: string }) => e?.LongMessage).filter(Boolean).join('; '))
+  }
+
+  const orders = response?.OrderArray?.Order
+  if (!orders) return []
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (Array.isArray(orders) ? orders : [orders]).flatMap((order: any) => {
+    const transactions = order.TransactionArray?.Transaction
+    if (!transactions) return []
+
+    let status: SoldItem['status'] = 'awaiting_payment'
+    if (String(order.OrderStatus) === 'Cancelled') status = 'cancelled'
+    else if (order.ShippedTime) status = 'shipped'
+    else if (order.PaidTime || order.CheckoutStatus?.Status === 'Complete') status = 'paid'
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (Array.isArray(transactions) ? transactions : [transactions]).map((tx: any) => {
+      const trackingRaw = tx.ShippingDetails?.ShipmentTrackingDetails
+      const trackingList = trackingRaw ? (Array.isArray(trackingRaw) ? trackingRaw : [trackingRaw]) : []
+      const tracking = trackingList[0]
+
+      return {
+        orderId: String(order.OrderID ?? ''),
+        itemId: String(tx.Item?.ItemID ?? ''),
+        title: String(tx.Item?.Title ?? ''),
+        salePrice: extractPrice(tx.TransactionPrice),
+        currency: tx.TransactionPrice?.['@_currencyID'] ?? 'USD',
+        quantity: Number(tx.QuantityPurchased ?? 1),
+        buyerUserId: String(order.BuyerUserID ?? tx.Buyer?.UserID ?? ''),
+        saleDate: String(order.CreatedTime ?? ''),
+        paidDate: order.PaidTime ? String(order.PaidTime) : undefined,
+        shippedDate: order.ShippedTime ? String(order.ShippedTime) : undefined,
+        status,
+        trackingNumber: tracking?.ShipmentTrackingNumber ? String(tracking.ShipmentTrackingNumber) : undefined,
+        trackingCarrier: tracking?.ShippingCarrierUsed ? String(tracking.ShippingCarrierUsed) : undefined,
+        galleryUrl: tx.Item?.PictureDetails?.GalleryURL as string | undefined,
+        viewItemUrl: tx.Item?.ListingDetails?.ViewItemURL as string | undefined,
+      } satisfies SoldItem
+    })
+  })
 }
 
 function escapeXml(str: string): string {

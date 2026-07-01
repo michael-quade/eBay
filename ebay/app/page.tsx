@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import ListingCard from '@/components/ListingCard'
-import type { EbayListing } from '@/lib/ebay/listings'
+import SoldItemCard from '@/components/SoldItemCard'
+import type { EbayListing, SoldItem } from '@/lib/ebay/listings'
 import type { EbayEnv } from '@/lib/env'
 
 const RELISTED_KEY = 'ebay_relisted_ids'
@@ -24,6 +25,7 @@ function addToStoredSet(key: string, id: string) {
 export default function Dashboard() {
   const [env, setEnv] = useState<EbayEnv>('sandbox')
   const [listings, setListings] = useState<EbayListing[]>([])
+  const [soldItems, setSoldItems] = useState<SoldItem[]>([])
   const [relistedIds, setRelistedIds] = useState<Set<string>>(new Set())
   const [sandboxDismissedIds, setSandboxDismissedIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
@@ -57,11 +59,13 @@ export default function Dashboard() {
       const res = await fetch(`/api/listings?env=${e}`)
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error ?? 'Request failed')
-      setListings(data.listings)
+      setListings(data.listings ?? [])
+      setSoldItems(data.soldItems ?? [])
       setLastFetched(new Date())
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load listings')
       setListings([])
+      setSoldItems([])
     } finally {
       setLoading(false)
     }
@@ -83,7 +87,6 @@ export default function Dashboard() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Environment toggle */}
           <div className="flex bg-gray-100 rounded-lg p-1 text-sm font-medium">
             {(['sandbox', 'production'] as EbayEnv[]).map(e => (
               <button
@@ -127,9 +130,7 @@ export default function Dashboard() {
             : 'bg-green-50 text-green-700 border border-green-200'
         }`}
       >
-        <span
-          className={`w-1.5 h-1.5 rounded-full ${env === 'sandbox' ? 'bg-blue-500' : 'bg-green-500'}`}
-        />
+        <span className={`w-1.5 h-1.5 rounded-full ${env === 'sandbox' ? 'bg-blue-500' : 'bg-green-500'}`} />
         {env === 'sandbox' ? 'Sandbox — test listings only' : 'Production — real eBay listings'}
       </div>
 
@@ -141,7 +142,7 @@ export default function Dashboard() {
       )}
 
       {/* Empty state */}
-      {!loading && !error && activeListings.length === 0 && unsoldListings.length === 0 && (
+      {!loading && !error && activeListings.length === 0 && unsoldListings.length === 0 && soldItems.length === 0 && (
         <div className="text-center py-20 text-gray-400">
           <p className="text-4xl mb-3">📦</p>
           <p className="font-medium text-gray-500">No active listings</p>
@@ -204,6 +205,23 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {unsoldListings.map(l => (
               <ListingCard key={l.itemId} listing={l} env={env} onRelisted={oldId => handleRelisted(oldId)} onDismiss={handleRelisted} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Sold items — past 6 months */}
+      {!loading && soldItems.length > 0 && (
+        <>
+          <div className="flex items-center gap-2 pt-2">
+            <h2 className="text-base font-semibold text-gray-700">Sold — Past 6 Months</h2>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200 font-medium">
+              {soldItems.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {soldItems.map(item => (
+              <SoldItemCard key={`${item.orderId}-${item.itemId}`} item={item} />
             ))}
           </div>
         </>
