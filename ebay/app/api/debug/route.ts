@@ -119,11 +119,63 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // 5. Optional: GetOrders — inspect parsed field paths for fee/shipping debugging
+  const showOrders = request.nextUrl.searchParams.get('orders') === '1'
+  let ordersResult: unknown = null
+  let ordersError = ''
+  if (showOrders) {
+    const now = new Date()
+    const ninetyDaysAgo = new Date()
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
+    const ordersXml = `<?xml version="1.0" encoding="utf-8"?>
+<GetOrdersRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <RequesterCredentials>
+    <eBayAuthToken>${creds.token}</eBayAuthToken>
+  </RequesterCredentials>
+  <CreateTimeFrom>${ninetyDaysAgo.toISOString()}</CreateTimeFrom>
+  <CreateTimeTo>${now.toISOString()}</CreateTimeTo>
+  <OrderRole>Seller</OrderRole>
+  <OrderStatus>All</OrderStatus>
+  <DetailLevel>ReturnAll</DetailLevel>
+  <IncludeFinalValueFee>true</IncludeFinalValueFee>
+  <Pagination><EntriesPerPage>5</EntriesPerPage><PageNumber>1</PageNumber></Pagination>
+</GetOrdersRequest>`
+    try {
+      const { XMLParser } = await import('fast-xml-parser')
+      const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', parseAttributeValue: true, parseTagValue: true, textNodeName: '#text' })
+      const res = await fetch(creds.apiUrl, {
+        method: 'POST',
+        headers: {
+          'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+          'X-EBAY-API-DEV-NAME': creds.devId,
+          'X-EBAY-API-APP-NAME': creds.clientId,
+          'X-EBAY-API-CERT-NAME': creds.clientSecret,
+          'X-EBAY-API-CALL-NAME': 'GetOrders',
+          'X-EBAY-API-SITEID': '0',
+          'Content-Type': 'text/xml',
+        },
+        body: ordersXml,
+      })
+      const raw = await res.text()
+      const parsed = parser.parse(raw)
+      const orders = parsed?.GetOrdersResponse?.OrderArray?.Order
+      const firstOrder = orders ? (Array.isArray(orders) ? orders[0] : orders) : null
+      ordersResult = {
+        orderCount: Array.isArray(orders) ? orders.length : (orders ? 1 : 0),
+        firstOrder,
+        rawXml: raw,
+      }
+    } catch (e: unknown) {
+      ordersError = e instanceof Error ? e.message : String(e)
+    }
+  }
+
   return NextResponse.json({
     env,
     credentials: credsSummary,
     geteBayOfficialTime: { raw: timeRaw, fetchError: timeError },
     getUser: { raw: userRaw, fetchError: userError },
     ...(itemId ? { getItem: { itemId, result: getItemResult, fetchError: getItemError } } : {}),
+    ...(showOrders ? { getOrders: { result: ordersResult, fetchError: ordersError } } : {}),
   })
 }

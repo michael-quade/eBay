@@ -145,6 +145,7 @@ export async function getSoldItems(env: EbayEnv): Promise<SoldItem[]> {
   <OrderRole>Seller</OrderRole>
   <OrderStatus>All</OrderStatus>
   <DetailLevel>ReturnAll</DetailLevel>
+  <IncludeFinalValueFee>true</IncludeFinalValueFee>
   <Pagination><EntriesPerPage>100</EntriesPerPage><PageNumber>1</PageNumber></Pagination>
 </GetOrdersRequest>`
 
@@ -170,9 +171,13 @@ export async function getSoldItems(env: EbayEnv): Promise<SoldItem[]> {
     else if (order.PaidTime || order.CheckoutStatus?.Status === 'Complete') status = 'paid'
 
     const buyerPaidTotal = extractPrice(order.AmountPaid)
-    // Shipping buyer paid — prefer order-level ShippingCost over derived value
-    const shippingPaidByBuyer = extractPrice(order.ShippingCost) || extractPrice(order.ShippingDetails?.ShippingServiceSelected?.ShippingServiceCost) || 0
-    // Per-order fixed fee (e.g. the $0.40 fixed amount) lives at Order level; only add once
+    // eBay returns shipping cost under different paths depending on API version
+    const shippingPaidByBuyer =
+      extractPrice(order.ShippingDetails?.ShippingServiceSelected?.ShippingServiceCost) ||
+      extractPrice(order.ShippingCost) ||
+      extractPrice(order.ShippingDetails?.ShippingServiceOptions?.ShippingServiceCost) ||
+      0
+    // Per-order fixed fee lives at Order.FinalValueFee (separate from per-transaction variable FVF)
     const orderLevelFee = extractPrice(order.FinalValueFee)
 
     const txList = Array.isArray(transactions) ? transactions : [transactions]
