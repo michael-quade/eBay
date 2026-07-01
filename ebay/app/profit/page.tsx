@@ -81,15 +81,16 @@ export default function ProfitPage() {
     (acc, item) => {
       const label = labelCosts[item.orderId] ?? 0
       return {
-        salePrice:          acc.salePrice          + item.salePrice,
-        buyerPaidTotal:     acc.buyerPaidTotal     + item.buyerPaidTotal,
-        shippingIn:         acc.shippingIn         + item.shippingPaidByBuyer,
-        ebayFee:            acc.ebayFee            + item.finalValueFee,
-        labelCost:          acc.labelCost          + label,
-        profit:             acc.profit             + (item.buyerPaidTotal - item.finalValueFee - label),
+        salePrice:      acc.salePrice      + item.salePrice,
+        shippingIn:     acc.shippingIn     + item.shippingPaidByBuyer,
+        salesTax:       acc.salesTax       + item.salesTax,
+        buyerPaidTotal: acc.buyerPaidTotal + item.buyerPaidTotal,
+        ebayFee:        acc.ebayFee        + item.finalValueFee,
+        labelCost:      acc.labelCost      + label,
+        profit:         acc.profit         + (item.buyerPaidTotal - item.salesTax - item.finalValueFee - label),
       }
     },
-    { salePrice: 0, buyerPaidTotal: 0, shippingIn: 0, ebayFee: 0, labelCost: 0, profit: 0 }
+    { salePrice: 0, shippingIn: 0, salesTax: 0, buyerPaidTotal: 0, ebayFee: 0, labelCost: 0, profit: 0 }
   )
 
   return (
@@ -139,6 +140,7 @@ export default function ProfitPage() {
                 <th className="text-right px-4 py-3 font-medium">Sale Price</th>
                 <th className="text-right px-4 py-3 font-medium">Shipping In</th>
                 <th className="text-right px-4 py-3 font-medium">Buyer Paid</th>
+                <th className="text-right px-4 py-3 font-medium">Sales Tax</th>
                 <th className="text-right px-4 py-3 font-medium">eBay Fee</th>
                 <th className="text-right px-4 py-3 font-medium">Label Cost</th>
                 <th className="text-right px-4 py-3 font-medium">Profit</th>
@@ -148,7 +150,7 @@ export default function ProfitPage() {
               {loading && (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="animate-pulse">
-                    {Array.from({ length: 9 }).map((_, j) => (
+                    {Array.from({ length: 10 }).map((_, j) => (
                       <td key={j} className="px-4 py-3">
                         <div className="h-3 bg-gray-100 rounded w-full" />
                       </td>
@@ -158,7 +160,7 @@ export default function ProfitPage() {
               )}
               {!loading && items.map(item => {
                 const label = labelCosts[item.orderId] ?? 0
-                const profit = item.buyerPaidTotal - item.finalValueFee - label
+                const profit = item.buyerPaidTotal - item.salesTax - item.finalValueFee - label
                 const isCancelled = item.status === 'cancelled'
                 return (
                   <tr key={`${item.orderId}-${item.itemId}`}
@@ -185,6 +187,9 @@ export default function ProfitPage() {
                     <td className="px-4 py-3 text-right tabular-nums">{fmt(item.salePrice)}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-gray-500">{fmt(item.shippingPaidByBuyer)}</td>
                     <td className="px-4 py-3 text-right tabular-nums font-medium">{fmt(item.buyerPaidTotal)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-gray-500" title="Collected & remitted by eBay">
+                      {item.salesTax > 0 ? `−${fmt(item.salesTax)}` : '—'}
+                    </td>
                     <td className="px-4 py-3 text-right tabular-nums text-red-600">−{fmt(item.finalValueFee)}</td>
                     <td className="px-4 py-3 text-right">
                       {isCancelled ? (
@@ -225,6 +230,7 @@ export default function ProfitPage() {
                   <td className="px-4 py-3 text-right tabular-nums">{fmt(totals.salePrice)}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-gray-500">{fmt(totals.shippingIn)}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{fmt(totals.buyerPaidTotal)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-gray-500">−{fmt(totals.salesTax)}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-red-600">−{fmt(totals.ebayFee)}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-red-600">−{fmt(totals.labelCost)}</td>
                   <td className={`px-4 py-3 text-right tabular-nums text-base ${totals.profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
@@ -238,7 +244,8 @@ export default function ProfitPage() {
       )}
 
       <p className="text-xs text-gray-400">
-        eBay Fee shown is the Final Value Fee per transaction. It may not include promoted listing fees or insertion fees.
+        Sales Tax is collected and remitted by eBay to the state — the seller never receives it and it is excluded from profit.
+        eBay Fee includes the variable Final Value Fee plus the per-order fixed fee. It may not include promoted listing or insertion fees.
         Shipping label cost is saved locally in your browser.
       </p>
     </div>

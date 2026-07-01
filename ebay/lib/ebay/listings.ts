@@ -21,10 +21,11 @@ export interface SoldItem {
   orderId: string
   itemId: string
   title: string
-  salePrice: number       // hammer price (item only)
-  buyerPaidTotal: number  // total received incl. shipping buyer paid
-  shippingPaidByBuyer: number
-  finalValueFee: number   // eBay FVF
+  salePrice: number           // hammer price (item only)
+  shippingPaidByBuyer: number // shipping amount buyer paid
+  salesTax: number            // collected & remitted by eBay — seller never keeps this
+  buyerPaidTotal: number      // total buyer paid = salePrice + shipping + tax
+  finalValueFee: number       // total eBay fees (variable FVF + per-order fixed fee)
   currency: string
   quantity: number
   buyerUserId: string
@@ -169,23 +170,40 @@ export async function getSoldItems(env: EbayEnv): Promise<SoldItem[]> {
     else if (order.PaidTime || order.CheckoutStatus?.Status === 'Complete') status = 'paid'
 
     const buyerPaidTotal = extractPrice(order.AmountPaid)
-    const orderSubtotal = extractPrice(order.Subtotal)
-    const shippingPaidByBuyer = Math.max(0, buyerPaidTotal - orderSubtotal)
+    // Shipping buyer paid — prefer order-level ShippingCost over derived value
+    const shippingPaidByBuyer = extractPrice(order.ShippingCost) || extractPrice(order.ShippingDetails?.ShippingServiceSelected?.ShippingServiceCost) || 0
+    // Per-order fixed fee (e.g. the $0.40 fixed amount) lives at Order level; only add once
+    const orderLevelFee = extractPrice(order.FinalValueFee)
+
+    const txList = Array.isArray(transactions) ? transactions : [transactions]
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (Array.isArray(transactions) ? transactions : [transactions]).map((tx: any) => {
+    return txList.map((tx: any, txIndex: number) => {
       const trackingRaw = tx.ShippingDetails?.ShipmentTrackingDetails
       const trackingList = trackingRaw ? (Array.isArray(trackingRaw) ? trackingRaw : [trackingRaw]) : []
       const tracking = trackingList[0]
+
+      // Sales tax — eBay collects and remits; seller never keeps it
+      let salesTax = 0
+      const taxDetails = tx.Taxes?.TaxDetails
+      if (taxDetails) {
+        const taxList = Array.isArray(taxDetails) ? taxDetails : [taxDetails]
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        salesTax = taxList.reduce((sum: number, t: any) => sum + extractPrice(t.TaxAmount), 0)
+      }
+
+      // Total eBay fees = transaction-level variable FVF + per-order fixed fee (first tx only)
+      const finalValueFee = extractPrice(tx.FinalValueFee) + (txIndex === 0 ? orderLevelFee : 0)
 
       return {
         orderId: String(order.OrderID ?? ''),
         itemId: String(tx.Item?.ItemID ?? ''),
         title: String(tx.Item?.Title ?? ''),
         salePrice: extractPrice(tx.TransactionPrice),
-        buyerPaidTotal,
         shippingPaidByBuyer,
-        finalValueFee: extractPrice(tx.FinalValueFee),
+        salesTax,
+        buyerPaidTotal,
+        finalValueFee,
         currency: tx.TransactionPrice?.['@_currencyID'] ?? 'USD',
         quantity: Number(tx.QuantityPurchased ?? 1),
         buyerUserId: String(order.BuyerUserID ?? tx.Buyer?.UserID ?? ''),
