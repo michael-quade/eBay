@@ -170,7 +170,8 @@ export async function getSoldItems(env: EbayEnv): Promise<SoldItem[]> {
     else if (order.ShippedTime) status = 'shipped'
     else if (order.PaidTime || order.CheckoutStatus?.Status === 'Complete') status = 'paid'
 
-    const buyerPaidTotal = extractPrice(order.AmountPaid)
+    // AmountPaid is the seller's settlement amount — eBay excludes sales tax from it
+    const orderAmountPaid = extractPrice(order.AmountPaid)
     // eBay returns shipping cost under different paths depending on API version
     const shippingPaidByBuyer =
       extractPrice(order.ShippingDetails?.ShippingServiceSelected?.ShippingServiceCost) ||
@@ -196,6 +197,9 @@ export async function getSoldItems(env: EbayEnv): Promise<SoldItem[]> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         salesTax = taxList.reduce((sum: number, t: any) => sum + extractPrice(t.TaxAmount), 0)
       }
+
+      // True buyer paid total = seller's settlement amount + sales tax eBay collected
+      const buyerPaidTotal = orderAmountPaid + salesTax
 
       // Total eBay fees = transaction-level variable FVF + per-order fixed fee (first tx only)
       const finalValueFee = extractPrice(tx.FinalValueFee) + (txIndex === 0 ? orderLevelFee : 0)
