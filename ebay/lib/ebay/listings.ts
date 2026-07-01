@@ -21,7 +21,10 @@ export interface SoldItem {
   orderId: string
   itemId: string
   title: string
-  salePrice: number
+  salePrice: number       // hammer price (item only)
+  buyerPaidTotal: number  // total received incl. shipping buyer paid
+  shippingPaidByBuyer: number
+  finalValueFee: number   // eBay FVF
   currency: string
   quantity: number
   buyerUserId: string
@@ -165,6 +168,10 @@ export async function getSoldItems(env: EbayEnv): Promise<SoldItem[]> {
     else if (order.ShippedTime) status = 'shipped'
     else if (order.PaidTime || order.CheckoutStatus?.Status === 'Complete') status = 'paid'
 
+    const buyerPaidTotal = extractPrice(order.AmountPaid)
+    const orderSubtotal = extractPrice(order.Subtotal)
+    const shippingPaidByBuyer = Math.max(0, buyerPaidTotal - orderSubtotal)
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (Array.isArray(transactions) ? transactions : [transactions]).map((tx: any) => {
       const trackingRaw = tx.ShippingDetails?.ShipmentTrackingDetails
@@ -176,6 +183,9 @@ export async function getSoldItems(env: EbayEnv): Promise<SoldItem[]> {
         itemId: String(tx.Item?.ItemID ?? ''),
         title: String(tx.Item?.Title ?? ''),
         salePrice: extractPrice(tx.TransactionPrice),
+        buyerPaidTotal,
+        shippingPaidByBuyer,
+        finalValueFee: extractPrice(tx.FinalValueFee),
         currency: tx.TransactionPrice?.['@_currencyID'] ?? 'USD',
         quantity: Number(tx.QuantityPurchased ?? 1),
         buyerUserId: String(order.BuyerUserID ?? tx.Buyer?.UserID ?? ''),
